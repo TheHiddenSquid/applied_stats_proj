@@ -13,6 +13,6 @@ class TrainingArguments():
     epochs: int = 1000
     lr: float = 0.1
     zo_lr: float = 0.1 #Mezo paper uses 1e−5,1e−6,1e−7 TODO: also, when running huggingface seems to use an adaptive learning rate
-    weight_decay: float = 0.0 #MeZO paper uses 0 and 0.1
+    weight_decay: float = 0.1 #MeZO paper uses 0 and 0.1
     epsilon: float = 1e-3
     zo_epochs: int = 10000
