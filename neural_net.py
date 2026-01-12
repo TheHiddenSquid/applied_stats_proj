@@ -4,7 +4,7 @@ import torch.nn as nn # type: ignore
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_curve, auc, f1_score
+from sklearn.metrics import roc_curve, auc, f1_score, confusion_matrix
 from sklearn.preprocessing import StandardScaler # type: ignore
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -215,7 +215,8 @@ def roc(model, df):
         fpr, tpr, threshold = roc_curve(Y_test, y_score)
         y_score = (y_score > 0.5)
         f1 = f1_score(Y_test, y_score)
-    return fpr, tpr, threshold, f1
+        cm = confusion_matrix(Y_test, y_score)
+    return fpr, tpr, threshold, f1, cm
 
 ############## MEZO FineTuning ##############
 
@@ -300,38 +301,39 @@ model = better_one_l_net(args)
 ## Train Model
 trainArgs = TrainingArguments
 optimizer = torch.optim.SGD(model.parameters(), trainArgs.lr)
-# train_full(model)
+train_full(model)
 
-# ## Test Model
-# loss, acc = test(model, test_loader)
-# print('loss: {}, acc: {}'.format(loss, acc))
+## Test Model
+loss, acc = test(model, test_loader)
+print('loss: {}, acc: {}'.format(loss, acc))
 
-# ## Finetune Model and Retest
-# tunelosses = finetune(model, finetune_df.X, finetune_df.y, trainArgs)
+## Finetune Model and Retest
+tunelosses = finetune(model, finetune_df.X, finetune_df.y, trainArgs)
 
-# loss, acc = test(model, test_loader)
-# print('loss: {}, acc: {}'.format(loss, acc))
+loss, acc = test(model, test_loader)
+print('loss: {}, acc: {}'.format(loss, acc))
 
-# ## ROC and AUC
-# fpr, tpr, threshold, f1 = roc(model, test_df)
+## ROC and AUC
+fpr, tpr, threshold, f1, cm = roc(model, test_df)
 
-# plt.plot(fpr,tpr,marker='.')
-# plt.ylabel('True Positive Rate')
-# plt.xlabel('False Positive Rate' )
-# plt.show()
+plt.plot(fpr,tpr,marker='.')
+plt.ylabel('True Positive Rate')
+plt.xlabel('False Positive Rate' )
+plt.show()
 
-# print(auc(fpr, tpr))
-# print(f1)
+print(auc(fpr, tpr))
+print(f1)
+print(cm)
 
-def trainAndPredict(model, d):
+def trainAndPredict(model, d, args):
     #split all data into train and finetune
-    train, finetune = train_test_split(d, test_size=0.2)
+    train, tune = train_test_split(d, test_size=0.2)
 
     train_df = census_data(train.drop(columns="over50k"), train["over50k"])
     train_loader = DataLoader(train_df, batch_size=4, shuffle=True)
 
-    finetune_df = census_data(finetune.drop(columns="over50k"), finetune["over50k"])
-    finetuning_loader = DataLoader(finetune_df, batch_size=4, shuffle=True)
+    tune_df = census_data(tune.drop(columns="over50k"), tune["over50k"])
+    finetuning_loader = DataLoader(tune_df, batch_size=4, shuffle=True)
 
     #train model
     EPOCHS = 5 #TODO: use args
@@ -367,6 +369,7 @@ def trainAndPredict(model, d):
         avg_loss = last_loss
 
     #fine tune
+    tunelosses = finetune(model, tune_df.X, tune_df.y, args)
     
     #get data from submit file
     emptydf = pd.DataFrame(columns=list(d))
@@ -378,7 +381,6 @@ def trainAndPredict(model, d):
     emptydf = emptydf.fillna(0)
     print(list(emptydf))
     valid_df = census_data(emptydf.drop(columns="over50k"), emptydf["over50k"])
-    valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
 
     #get predictions and probabilities
     X = valid_df.X
@@ -389,5 +391,13 @@ def trainAndPredict(model, d):
         pred = (prob > 0.5).float()
     return prob, pred
 
-prob, pred = trainAndPredict(model, data)
-print('prob: {}, pred: {}'.format(prob, sum(pred)))
+## Generate Predictions
+# prob, pred = trainAndPredict(model, data, trainArgs)
+# print('prob: {}, pred: {}'.format(prob, sum(pred)))
+# outdata = pd.read_csv("submit_2025.csv").drop('over50k', axis=1).drop('probability', axis=1)
+# outdata["over50k"] = pred.detach().numpy()
+# probs = [tensor.item() for tensor in prob]
+# outdata["probability of yes (or score)"] = probs
+# outdata.to_csv('data/submit_2025.csv', index=False)
+
+
