@@ -4,7 +4,7 @@ import torch.nn as nn # type: ignore
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, f1_score
 from sklearn.preprocessing import StandardScaler # type: ignore
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -75,17 +75,24 @@ finetune_df = census_data(finetune.drop(columns="over50k"), finetune["over50k"])
 finetuning_loader = DataLoader(finetune_df, batch_size=4, shuffle=True)
 
 #TODO: need validation loader from submit_2025
-# valid = pd.read_csv("submit_2025.csv").drop('education', axis=1)
-# valid = encode_train_test(valid, ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country'])
-# valid['over50k'] = pd.factorize(valid['over50k'])[0]
-# valid = valid.astype(np.float64)
-# valid_df = census_data(valid.drop(columns="over50k"), valiud["over50k"])
-# valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
+emptydf = pd.DataFrame(columns=list(data))
+valid = pd.read_csv("submit_2025.csv").drop('education', axis=1).drop('probability', axis=1)
+valid = encode_train_test_onehot(valid, ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country'])
+valid = valid.astype(np.float64)
+for x in list(valid):
+    emptydf[x] = valid[x]
+emptydf = emptydf.fillna(0)
+valid_df = census_data(emptydf.drop(columns="over50k"), testdf["over50k"])
+valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
 
 
-print(train.head)
+# print(list(data))
+# print(list(valid))
+print(valid_df.y)
+# print(data)
+# print(set(list(data)) - set(list(valid)))
 # print(test.drop(columns="over50k").head)
-print(test_df)
+print(test_df.X)
 
 
 
@@ -194,6 +201,7 @@ def test(model, data_loader):
             loss += model.loss_fn(logits, Y_test)
             logits = (logits > 0.5).float()
             acc += torch.mean((logits == Y_test).float())
+            
         loss, acc = loss.item()/(i+1), acc.item()/(i+1)
     return loss, acc
     
@@ -205,7 +213,9 @@ def roc(model, df):
         probabilities = model(X_test)
         y_score = probabilities.squeeze(-1).detach().numpy() 
         fpr, tpr, threshold = roc_curve(Y_test, y_score)
-    return fpr, tpr, threshold
+        y_score = (y_score > 0.5)
+        f1 = f1_score(Y_test, y_score)
+    return fpr, tpr, threshold, f1
 
 ############## MEZO FineTuning ##############
 
@@ -288,33 +298,111 @@ args = MlpArguments(
 model = better_one_l_net(args)
 
 ## Train Model
-trainArgs = TrainingArguments
-optimizer = torch.optim.SGD(model.parameters(), trainArgs.lr)
-train_full(model)
+# trainArgs = TrainingArguments
+# optimizer = torch.optim.SGD(model.parameters(), trainArgs.lr)
+# train_full(model)
 
-## Test Model
-loss, acc = test(model, test_loader)
-print('loss: {}, acc: {}'.format(loss, acc))
+# ## Test Model
+# loss, acc = test(model, test_loader)
+# print('loss: {}, acc: {}'.format(loss, acc))
 
-## Finetune Model and Retest
-tunelosses = finetune(model, finetune_df.X, finetune_df.y, trainArgs)
+# ## Finetune Model and Retest
+# tunelosses = finetune(model, finetune_df.X, finetune_df.y, trainArgs)
 
-loss, acc = test(model, test_loader)
-print('loss: {}, acc: {}'.format(loss, acc))
+# loss, acc = test(model, test_loader)
+# print('loss: {}, acc: {}'.format(loss, acc))
 
-## ROC and AUC
-fpr, tpr, threshold = roc(model, test_df)
-print("nn_fpr = ")
-print(fpr.tolist())
-print("nn_tpr = ")
-print(tpr.tolist())
-print("nn_thresh = ")
-print(threshold.tolist())
-# print(fpr)
+# ## ROC and AUC
+# fpr, tpr, threshold, f1 = roc(model, test_df)
 
-plt.plot(fpr,tpr,marker='.')
-plt.ylabel('True Positive Rate')
-plt.xlabel('False Positive Rate' )
-plt.show()
+# plt.plot(fpr,tpr,marker='.')
+# plt.ylabel('True Positive Rate')
+# plt.xlabel('False Positive Rate' )
+# plt.show()
 
-print(auc(fpr, tpr))
+# print(auc(fpr, tpr))
+# print(f1)
+
+
+def trainAndPredict(model, data):
+    #split all data into train and finetune
+    train, finetune = train_test_split(data, test_size=0.2)
+
+    train_df = census_data(train.drop(columns="over50k"), train["over50k"])
+    train_loader = DataLoader(train_df, batch_size=4, shuffle=True)
+
+    finetune_df = census_data(finetune.drop(columns="over50k"), finetune["over50k"])
+    finetuning_loader = DataLoader(finetune_df, batch_size=4, shuffle=True)
+
+    #train model
+    EPOCHS = 5 #TODO: use args
+
+    best_loss_test = 1_000_000.
+
+    for epoch in range(EPOCHS):
+        print('EPOCH {}:'.format(epoch_number + 1))
+
+        # Make sure gradient tracking is on, and do a pass over the data
+        model.train(True)
+        running_loss = 0.
+        last_loss = 0.
+        for i, data in enumerate(train_loader):
+            # Every data instance is an input + label pair
+            X, Y = data
+            optimizer.zero_grad()
+            output = model(X)
+            #Compute loss using loss fn
+            loss = loss_fn(output, Y)
+            #Update weights
+            loss.backward()
+            optimizer.step()
+
+            #data gathering
+            running_loss += loss.item()
+            if i % 1000 == 999:
+                last_loss = running_loss / 1000 # loss per batch
+                print('  batch {} loss: {}'.format(i + 1, last_loss))
+                tb_x = epoch_index * len(training_loader) + i + 1
+            running_loss = 0.
+
+        avg_loss = last_loss
+
+    
+    #get data from submit file
+    emptydf = pd.DataFrame(columns=list(data))
+    valid = pd.read_csv("submit_2025.csv").drop('education', axis=1).drop('probability', axis=1)
+    valid = encode_train_test_onehot(valid, ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country'])
+    valid = valid.astype(np.float64)
+    for x in list(valid):
+        emptydf[x] = valid[x]
+    emptydf = emptydf.fillna(0)
+    valid_df = census_data(emptydf.drop(columns="over50k"), testdf["over50k"])
+    valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
+
+
+
+
+
+# def train_one_epoch(loss_fn, epoch_index):
+#     running_loss = 0.
+#     last_loss = 0.
+#     for i, data in enumerate(training_loader):
+#         # Every data instance is an input + label pair
+#         X, Y = data
+#         optimizer.zero_grad()
+#         output = model(X)
+#         #Compute loss using loss fn
+#         loss = loss_fn(output, Y)
+#         #Update weights
+#         loss.backward()
+#         optimizer.step()
+
+#         #data gathering
+#         running_loss += loss.item()
+#         if i % 1000 == 999:
+#             last_loss = running_loss / 1000 # loss per batch
+#             print('  batch {} loss: {}'.format(i + 1, last_loss))
+#             tb_x = epoch_index * len(training_loader) + i + 1
+#         running_loss = 0.
+
+#     return last_loss
