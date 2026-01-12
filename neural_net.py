@@ -304,6 +304,12 @@ print('loss: {}, acc: {}'.format(loss, acc))
 
 ## ROC and AUC
 fpr, tpr, threshold = roc(model, test_df)
+print("nn_fpr = ")
+print(fpr.tolist())
+print("nn_tpr = ")
+print(tpr.tolist())
+print("nn_thresh = ")
+print(threshold.tolist())
 # print(fpr)
 
 plt.plot(fpr,tpr,marker='.')
