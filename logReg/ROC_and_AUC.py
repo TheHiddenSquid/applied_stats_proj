@@ -1,6 +1,6 @@
 import numpy as np
 import json
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, f1_score
 import matplotlib.pyplot as plt
 import logistic_regression as lr
 import data_loader as dl 
@@ -41,6 +41,8 @@ def main():
     model_predictions = model.predict(X_test)
     accuracy = np.mean(model_predictions == y_test)
     print(f"Test Accuracy: {accuracy * 100:.2f}%")
+    f1 = f1_score(y_test, model_predictions)
+    print(f"F1 Score: {f1:.4f}")
 
     plt.figure(figsize=(7, 5))
     y_proba = model.predict_proba(X_test)
