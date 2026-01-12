@@ -75,24 +75,24 @@ finetune_df = census_data(finetune.drop(columns="over50k"), finetune["over50k"])
 finetuning_loader = DataLoader(finetune_df, batch_size=4, shuffle=True)
 
 #TODO: need validation loader from submit_2025
-emptydf = pd.DataFrame(columns=list(data))
-valid = pd.read_csv("submit_2025.csv").drop('education', axis=1).drop('probability', axis=1)
-valid = encode_train_test_onehot(valid, ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country'])
-valid = valid.astype(np.float64)
-for x in list(valid):
-    emptydf[x] = valid[x]
-emptydf = emptydf.fillna(0)
-valid_df = census_data(emptydf.drop(columns="over50k"), testdf["over50k"])
-valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
+# emptydf = pd.DataFrame(columns=list(data))
+# valid = pd.read_csv("submit_2025.csv").drop('education', axis=1).drop('probability', axis=1)
+# valid = encode_train_test_onehot(valid, ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country'])
+# valid = valid.astype(np.float64)
+# for x in list(valid):
+#     emptydf[x] = valid[x]
+# emptydf = emptydf.fillna(0)
+# valid_df = census_data(emptydf.drop(columns="over50k"), emptydf["over50k"])
+# valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
 
 
 # print(list(data))
 # print(list(valid))
-print(valid_df.y)
+# print(list(emptydf))
 # print(data)
 # print(set(list(data)) - set(list(valid)))
 # print(test.drop(columns="over50k").head)
-print(test_df.X)
+# print(test_df.X)
 
 
 
@@ -298,8 +298,8 @@ args = MlpArguments(
 model = better_one_l_net(args)
 
 ## Train Model
-# trainArgs = TrainingArguments
-# optimizer = torch.optim.SGD(model.parameters(), trainArgs.lr)
+trainArgs = TrainingArguments
+optimizer = torch.optim.SGD(model.parameters(), trainArgs.lr)
 # train_full(model)
 
 # ## Test Model
@@ -323,10 +323,9 @@ model = better_one_l_net(args)
 # print(auc(fpr, tpr))
 # print(f1)
 
-
-def trainAndPredict(model, data):
+def trainAndPredict(model, d):
     #split all data into train and finetune
-    train, finetune = train_test_split(data, test_size=0.2)
+    train, finetune = train_test_split(d, test_size=0.2)
 
     train_df = census_data(train.drop(columns="over50k"), train["over50k"])
     train_loader = DataLoader(train_df, batch_size=4, shuffle=True)
@@ -340,7 +339,7 @@ def trainAndPredict(model, data):
     best_loss_test = 1_000_000.
 
     for epoch in range(EPOCHS):
-        print('EPOCH {}:'.format(epoch_number + 1))
+        print('EPOCH {}:'.format(epoch + 1))
 
         # Make sure gradient tracking is on, and do a pass over the data
         model.train(True)
@@ -352,7 +351,7 @@ def trainAndPredict(model, data):
             optimizer.zero_grad()
             output = model(X)
             #Compute loss using loss fn
-            loss = loss_fn(output, Y)
+            loss = model.loss_fn(output, Y)
             #Update weights
             loss.backward()
             optimizer.step()
@@ -362,47 +361,33 @@ def trainAndPredict(model, data):
             if i % 1000 == 999:
                 last_loss = running_loss / 1000 # loss per batch
                 print('  batch {} loss: {}'.format(i + 1, last_loss))
-                tb_x = epoch_index * len(training_loader) + i + 1
+                tb_x = epoch * len(training_loader) + i + 1
             running_loss = 0.
 
         avg_loss = last_loss
 
+    #fine tune
     
     #get data from submit file
-    emptydf = pd.DataFrame(columns=list(data))
+    emptydf = pd.DataFrame(columns=list(d))
     valid = pd.read_csv("submit_2025.csv").drop('education', axis=1).drop('probability', axis=1)
     valid = encode_train_test_onehot(valid, ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country'])
     valid = valid.astype(np.float64)
     for x in list(valid):
         emptydf[x] = valid[x]
     emptydf = emptydf.fillna(0)
-    valid_df = census_data(emptydf.drop(columns="over50k"), testdf["over50k"])
+    print(list(emptydf))
+    valid_df = census_data(emptydf.drop(columns="over50k"), emptydf["over50k"])
     valid_loader = DataLoader(valid_df, batch_size=4, shuffle=True)
 
+    #get predictions and probabilities
+    X = valid_df.X
+    # print(X)
+    model.eval()
+    with torch.no_grad():
+        prob = model(X)
+        pred = (prob > 0.5).float()
+    return prob, pred
 
-
-
-
-# def train_one_epoch(loss_fn, epoch_index):
-#     running_loss = 0.
-#     last_loss = 0.
-#     for i, data in enumerate(training_loader):
-#         # Every data instance is an input + label pair
-#         X, Y = data
-#         optimizer.zero_grad()
-#         output = model(X)
-#         #Compute loss using loss fn
-#         loss = loss_fn(output, Y)
-#         #Update weights
-#         loss.backward()
-#         optimizer.step()
-
-#         #data gathering
-#         running_loss += loss.item()
-#         if i % 1000 == 999:
-#             last_loss = running_loss / 1000 # loss per batch
-#             print('  batch {} loss: {}'.format(i + 1, last_loss))
-#             tb_x = epoch_index * len(training_loader) + i + 1
-#         running_loss = 0.
-
-#     return last_loss
+prob, pred = trainAndPredict(model, data)
+print('prob: {}, pred: {}'.format(prob, sum(pred)))
