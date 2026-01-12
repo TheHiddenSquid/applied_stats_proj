@@ -202,7 +202,6 @@ def main():
     plt.margins(0)
     plt.xlim(-0.01, 1)
     plt.ylim(0, 1.01)
-    plt.savefig("ROC.eps", format="eps")
     plt.show()
 
 
